@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>单词转盘 · 课前已嵌入图片版</title>
+  <style>
+    :root {
+      --bg: #ff6b6b;
+      /* 盘面主色参考截图 */
+      --ink: #0b1020;
+      --ghost: #ffffff18;
+      --text: #0b1020;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      height: 100%
+    }
+
+    body {
+      margin: 0;
+      background: #ffe8e8;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      color: #111
+    }
+
+    .wrap {
+      max-width: 1200px;
+      margin: 16px auto;
+      padding: 12px
+    }
+
+    /* 布局：左转盘 / 右侧树形Start图片 */
+    .stage {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px
+    }
+
+    @media (max-width: 840px) {
+      .stage {
+        flex-direction: column;
+        gap: 12px
+      }
+    }
+
+    .wheel-card {
+      background: #fff;
+      border-radius: 24px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, .12);
+      padding: 14px;
+      position: relative
+    }
+
+    .canvas-box {
+      position: relative;
+      width: min(93.6vw, 672px);
+      aspect-ratio: 1/1
+    }
+
+    /* 整体放大 1.2x */
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* 固定指针：右侧三角 */
+    .pointer {
+      position: absolute;
+      top: 50%;
+      right: -6px;
+      translate: 0 -50%;
+      width: 0;
+      height: 0;
+      border-top: 18px solid transparent;
+      border-bottom: 18px solid transparent;
+      border-left: 28px solid #fefefe;
+      filter: drop-shadow(0 2px 6px #0007)
+    }
+
+    /* 右侧Start树牌 */
+    .start-wrap {
+      display: grid;
+      place-items: center;
+    }
+
+    .start-btn {
+      display: block;
+      width: min(60vw, 360px);
+      max-width: 380px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-drag: none;
+      transition: transform .2s ease, filter .2s ease
+    }
+
+    .start-btn:hover {
+      transform: translateY(-4px) rotate(-1.5deg);
+      filter: drop-shadow(0 10px 16px rgba(0, 0, 0, .2));
+    }
+
+    .start-btn:active {
+      transform: translateY(0) rotate(0deg) scale(.98)
+    }
+
+    .result {
+      margin-top: 10px;
+      text-align: center;
+      font-weight: 800;
+      font-size: 20px
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="stage">
+      <section class="wheel-card">
+        <div class="canvas-box">
+          <canvas id="wheel" width="1000" height="1000"></canvas>
+          <div class="pointer" aria-hidden="true"></div>
+        </div>
+        <div id="result" class="result"></div>
+      </section>
+
+      <section class="start-wrap">
+        <!-- 用你给的树形Start图片做按钮 -->
+        <img id="startBtn" class="start-btn" alt="Start"
+          src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEDdUpo8Npv96frRRtWpLWu_58rdQQ4OwACQSIAAqpXgVeMYsNYLxr6rzYE.png" />
+      </section>
+    </div>
+  </div>
+  <script></script>
+
+  <script>
+    /*
+      使用说明（课前准备）：
+      1) 把下方 ASSETS 对象里的 URL 替换为你的 Base64 或线上图片地址。
+      2) 想要 8 个扇区就把 SECTORS=8；必须包含 1个炸弹 + 1个星星，其余会按你填的自定义图片补足。
+      3) 如需每次打开随机打乱扇区顺序，将 RANDOMIZE_ON_LOAD 设为 true。
+    */
+
+    // ===== 在这里粘贴你的图片 =====
+    const ASSETS = {
+      // “树形Start”按钮图片
+      START: "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEDdUpo8Npv96frRRtWpLWu_58rdQQ4OwACQSIAAqpXgVeMYsNYLxr6rzYE.png",
+      BOMB: "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEDdVVo8NuAOL4LUnnNzTR6sELxzJi1UgACTSIAAqpXgVemsUpahGvLGTYE.png",  // ← 炸弹
+      STAR: "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEDdVRo8Nt_FvxHJWYlPRu2TeygJdZVwwACTCIAAqpXgVdm1QLI8Bo6azYE.png"   // ← 星星
+    };
+
+    // 自定义扇区图片（除炸弹/星星之外）
+    const CUSTOM_IMAGES = [
+      "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEDdZRo8OYRVmeduMKqHCJRrUeP-O0fBgACjSIAAqpXgVdPLQsOPM3t1zYE.png",
+      "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEDdZJo8OYRN6a5fdIrU2L5CPyQHI8JAAOLIgACqleBVzO8HrVW7UJHNgQ.png",
+      "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEDdZBo8OYR-Cb_49M0WZs5vtTBOD3RwwACiSIAAqpXgVeiwD4X2lI4azYE.png",
+      "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEDdZNo8OYRKh8DnbNXuAS4jK_gqQfciQACjCIAAqpXgVc1HHni_5oI9jYE.png",
+      "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEDdZFo8OYRoCOZQMStQ0B4UmOhknQ3oQACiiIAAqpXgVfcO4fL4Ih3RzYE.png",
+      "https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAAEDdZNo8OYRKh8DnbNXuAS4jK_gqQfciQACjCIAAqpXgVc1HHni_5oI9jYE.png",
+    ];
+
+    const SECTORS = 8;                 // 扇区数量（建议 6 / 8 / 10 / 12）
+    const RANDOMIZE_ON_LOAD = false;   // 是否在加载时随机打乱扇区顺序
+
+    // ===== 转盘引擎（画图/转动/声音） =====
+    const TAU = Math.PI * 2;
+    const canvas = document.getElementById('wheel');
+    const ctx = canvas.getContext('2d');
+    const R = canvas.width / 2 - 6;
+
+    // 构建扇区数据：确保包含 1 个炸弹 + 1 个星星
+    function buildSlices() {
+      const imgs = [];
+
+      function mk(url, label = "") {
+        if (!url) return null;
+        const im = new Image();
+        im.src = url;
+        return { img: im, label };
+      }
+
+      imgs.push(mk(ASSETS.BOMB, 'Bomb'));
+      imgs.push(mk(ASSETS.STAR, 'Star'));
+
+      for (const u of CUSTOM_IMAGES) {
+        if (u) imgs.push(mk(u, ''));
+      }
+
+      // 若不足，使用空白占位
+      while (imgs.length < SECTORS) {
+        imgs.push(mk('', ''));
+      }
+
+      // 只取前 SECTORS 个
+      let arr = imgs.slice(0, SECTORS);
+      if (RANDOMIZE_ON_LOAD) {
+        arr = shuffle(arr);
+      }
+      return arr;
+    }
+
+    function shuffle(a) {
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = (Math.random() * (i + 1)) | 0;
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    // ✅ 预加载当前 slices 里的所有图片，加载完后再画
+    function preloadAllImages(slices) {
+      const tasks = [];
+
+      for (const s of slices) {
+        if (!s || !s.img || !s.img.src) continue;
+
+        tasks.push(
+          new Promise(resolve => {
+            if (s.img.complete) return resolve(); // 已加载
+            s.img.onload = () => resolve();
+            s.img.onerror = () => resolve();
+          })
+        );
+      }
+
+      return Promise.all(tasks);
+    }
+
+    let slices = buildSlices();
+    let angle = 0, spinning = false, angVel = 0, lastSeg = -1;
+    const palette = ["#ff7474", "#ffc2c2", "#ff9e9e", "#ffd0d0", "#ffa0a0", "#ffcaca", "#ffb3b3", "#ffdcdc"]; // 温暖偏粉
+
+    function draw() {
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      ctx.rotate(angle);
+
+      const step = TAU / slices.length;
+
+      // 外圈
+      ctx.beginPath();
+      ctx.arc(0, 0, R + 4, 0, TAU);
+      ctx.fillStyle = "#feecec";
+      ctx.fill();
+
+      for (let i = 0; i < slices.length; i++) {
+        const a0 = i * step, a1 = a0 + step, mid = a0 + step / 2;
+
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, R, a0, a1);
+        ctx.closePath();
+        ctx.fillStyle = palette[i % palette.length];
+        ctx.fill();
+
+        // 边线
+        ctx.strokeStyle = '#00000028';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const s = slices[i];
+        // 图片
+        if (s && s.img && s.img.src) {
+          const rImg = R * 0.63;
+          const size = Math.min(130, R * 0.36) * 1.5; // 放大图片为原来的1.5倍
+          ctx.save();
+          ctx.rotate(mid);
+          ctx.translate(rImg, 0);
+          ctx.rotate(-Math.PI / 2);
+          try {
+            ctx.drawImage(s.img, -size / 2, -size / 2, size, size);
+          } catch (e) { }
+          ctx.restore();
+        }
+      }
+
+      // 中心小圆
+      ctx.beginPath();
+      ctx.arc(0, 0, R * 0.08, 0, TAU);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#00000010";
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // 命中扇区索引（指针在右侧0弧度方向）
+    function segAtPointer() {
+      const step = TAU / slices.length;
+      let norm = angle % TAU;
+      if (norm < 0) norm += TAU;
+      return Math.floor((TAU - norm) / step) % slices.length;
+    }
+
+    // WebAudio: 滴答声
+    let audioCtx = null;
+    function ensureAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+    function tick() {
+      try {
+        ensureAudio();
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = 'square';
+        o.frequency.value = 900 + Math.random() * 80;
+        g.gain.value = 0.0001;
+        o.connect(g);
+        g.connect(audioCtx.destination);
+        const t = audioCtx.currentTime;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.14, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+        o.start(t);
+        o.stop(t + 0.09);
+      } catch (e) { }
+    }
+
+    function animate() {
+      if (!spinning) {
+        draw();
+        return;
+      }
+      angle += angVel;
+      angVel *= 0.985;
+      angVel -= 0.0003;
+      if (angVel < 0.003) {
+        angVel -= 0.0006;
+      }
+
+      const idx = segAtPointer();
+      if (idx !== lastSeg) {
+        lastSeg = idx;
+        tick();
+      }
+
+      if (angVel <= 0) {
+        spinning = false;
+        angVel = 0;
+        draw();
+        return;
+      }
+
+      draw();
+      requestAnimationFrame(animate);
+    }
+
+    function startSpin() {
+      if (spinning) return;
+      ensureAudio();
+      document.getElementById('result').textContent = '';
+      lastSeg = -1;
+      angVel = 0.38 + Math.random() * 0.24;
+      spinning = true;
+      requestAnimationFrame(animate);
+    }
+
+    function showResult(i) {
+      const s = slices[i];
+      const label = s?.label || '';
+      let text = `🎉 结果：扇区 ${i + 1}`;
+      if (label) {
+        text += `（${label}）`;
+      }
+
+      // 根据炸弹/星星给一点提示
+      const src = s?.img?.src || '';
+      if (src && ASSETS.BOMB && src.includes(ASSETS.BOMB.slice(0, 40))) text = '💣 Boom!（炸弹）';
+      if (src && ASSETS.STAR && src.includes(ASSETS.STAR.slice(0, 40))) text = '⭐ Lucky Star!（星星）';
+
+      document.getElementById('result').textContent = text;
+    }
+
+    // 绑定 Start 图片
+    const startEl = document.getElementById('startBtn');
+    startEl.addEventListener('click', startSpin);
+
+    // ✅ 页面加载时：先预加载所有扇区图片，再绘制一次
+    preloadAllImages(slices).then(() => {
+      draw();
+    });
+
+    // 如果你后来在代码里替换了 CUSTOM_IMAGES，可调用 rebuild() 重建
+    function rebuild() {
+      slices = buildSlices();
+      angle = 0;
+      preloadAllImages(slices).then(() => {
+        draw();
+      });
+    }
+  </script>
+</body>
+
+</html>
